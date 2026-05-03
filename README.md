@@ -110,8 +110,16 @@ test/
 
 ```bash
 pnpm install
-pnpm start              # src/main.ts 실행
-pnpm test               # 전체 테스트
-pnpm test:unit          # 단위 테스트
-pnpm test:integration   # 통합 테스트
+
+# Phase 1
+pnpm start server                      # echo 서버 (PORT=3000 기본)
+pnpm start client                      # 자체 클라이언트 (stdin REPL)
+pnpm start backpressure                # backpressure 데모 (안전 경로)
+WAIT_DRAIN=false pnpm start backpressure  # 무시 시 메모리 폭증 관찰
+PORT=4000 pnpm start server            # 포트 변경
+
+pnpm test                              # 전체 테스트
+pnpm test:integration                  # 통합 테스트만
 ```
+
+상세 명세는 `spec/01-tcp-echo-server.md`.
