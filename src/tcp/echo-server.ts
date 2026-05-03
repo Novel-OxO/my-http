@@ -10,6 +10,9 @@ export type EchoServerHandle = {
   server: net.Server;
   port: number;
   host: string;
+  /** 현재 활성화된 클라이언트 소켓 수. */
+  activeConnections: () => number;
+  /** 새 연결을 거부하고 활성 연결이 모두 끝날 때까지 기다린다 (graceful). */
   close: () => Promise<void>;
 };
 
@@ -28,12 +31,43 @@ export function createEchoServer(
   const host = options.host ?? process.env.HOST ?? "127.0.0.1";
   const port = options.port ?? Number(process.env.PORT ?? 3000);
 
+  /**
+   * 활성 소켓 추적. graceful shutdown 시 새 연결은 server.close가 막아주지만
+   * 기존 연결은 직접 추적해야 drain까지 기다릴 수 있다.
+   */
+  const activeSockets = new Set<net.Socket>();
+
   const server = net.createServer((socket) => {
-    log.debug(`connection from ${socket.remoteAddress}:${socket.remotePort}`);
+    activeSockets.add(socket);
+    log.debug(
+      `connection from ${socket.remoteAddress}:${socket.remotePort} ` +
+        `(active=${activeSockets.size})`,
+    );
 
     socket.on("data", (chunk) => {
       // Buffer를 그대로 echo. 인코딩 변환을 안 해야 binary safe하다.
       socket.write(chunk);
+    });
+
+    /**
+     * `end`는 상대방이 FIN을 보낸 시점 (half-close 가능). 이때는 더 이상 읽을
+     * 데이터는 없지만 쓰기는 가능하다. echo 서버에서는 받을 게 없으면 응답할
+     * 것도 없으므로 우리도 end를 보낸다.
+     */
+    socket.on("end", () => {
+      log.debug(`socket end ${socket.remoteAddress}:${socket.remotePort}`);
+    });
+
+    /**
+     * `close`는 양방향 모두 닫힌 최종 시점. hadError === true면 RST/에러로
+     * 끊겼다는 뜻이라 정상 종료와 구분된다. 활성 연결 추적은 여기서 정리한다.
+     */
+    socket.on("close", (hadError) => {
+      activeSockets.delete(socket);
+      log.debug(
+        `socket close hadError=${hadError} ` +
+          `(active=${activeSockets.size})`,
+      );
     });
 
     socket.on("error", (err) => {
@@ -55,10 +89,27 @@ export function createEchoServer(
         server,
         port: address.port,
         host: address.address,
-        close: () =>
-          new Promise<void>((res, rej) => {
+        activeConnections: () => activeSockets.size,
+        /**
+         * graceful shutdown:
+         * 1) server.close() — 새 연결은 더 이상 받지 않는다 (listening 해제).
+         * 2) 활성 소켓은 자연 종료를 기다린다 (drain).
+         * 3) 모든 소켓이 닫히면 server는 'close' 이벤트를 발생시킨다.
+         */
+        close: async () => {
+          const serverClosed = new Promise<void>((res, rej) => {
             server.close((err) => (err ? rej(err) : res()));
-          }),
+          });
+          for (const socket of activeSockets) {
+            socket.end();
+          }
+          await serverClosed;
+          // server.close 콜백은 내부 카운터 기준으로 먼저 fire될 수 있다.
+          // activeSockets이 실제로 비워질 때까지 추가로 기다린다.
+          while (activeSockets.size > 0) {
+            await new Promise<void>((res) => setImmediate(res));
+          }
+        },
       });
     });
   });
