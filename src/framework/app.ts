@@ -247,34 +247,62 @@ async function runMiddlewareChain(
   req: FwRequest,
   res: ResponseBuilder,
 ): Promise<void> {
-  let i = 0;
-  let invoked = false;
+  /**
+   * 학습 포인트: Express식 미들웨어 체인의 종료 시점.
+   * - 핸들러가 next()를 부르면 다음 미들웨어로 진행.
+   * - 핸들러가 next()를 안 부르고 (sync) 반환하면 체인 종료.
+   * - 핸들러가 promise를 반환하면 그 promise resolve 시점에 next 호출 여부로 판단.
+   */
   return new Promise<void>((resolve, reject) => {
-    const next = (err?: unknown) => {
-      if (err) return reject(err);
-      if (invoked) {
-        // 한 미들웨어가 next를 두 번 부르는 사용자 실수 — 무시
+    const dispatch = (idx: number): void => {
+      const handler = chain[idx];
+      if (!handler) return resolve();
+
+      let calledNext = false;
+      let settled = false;
+      const next = (err?: unknown) => {
+        if (settled) return; // 두 번 호출 방지
+        settled = true;
+        if (err) return reject(err);
+        calledNext = true;
+        dispatch(idx + 1);
+      };
+
+      let ret: unknown;
+      try {
+        ret = handler(req, res, next);
+      } catch (e) {
+        if (!settled) {
+          settled = true;
+          return reject(e);
+        }
         return;
       }
-      invoked = true;
-      const handler = chain[i++];
-      if (!handler) return resolve();
-      invoked = false;
-      try {
-        const ret = handler(req, res, next);
-        if (ret && typeof (ret as Promise<unknown>).then === "function") {
-          (ret as Promise<unknown>).then(
-            () => {
-              // promise 핸들러는 명시적으로 next를 부르지 않으면 체인 종료
-            },
-            (e) => reject(e),
-          );
+
+      if (ret && typeof (ret as { then?: unknown }).then === "function") {
+        (ret as Promise<unknown>).then(
+          () => {
+            if (!calledNext && !settled) {
+              settled = true;
+              resolve();
+            }
+          },
+          (e) => {
+            if (!settled) {
+              settled = true;
+              reject(e);
+            }
+          },
+        );
+      } else {
+        // sync 반환: next를 안 불렀다면 체인 종료
+        if (!calledNext && !settled) {
+          settled = true;
+          resolve();
         }
-      } catch (e) {
-        reject(e);
       }
     };
-    next();
+    dispatch(0);
   });
 }
 
