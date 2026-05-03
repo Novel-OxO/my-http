@@ -20,6 +20,21 @@ TypeScript + Node.js 기반으로 TCP 소켓부터 시작해서 직접 HTTP 파�
 - **학습 포인트:** Stream 기반 I/O, Buffer vs string, `setEncoding`, backpressure 맛보기
 - **테스트:** integration에서 실제 소켓 연결 후 echo 검증
 
+### Phase 1.5. UDP 에코 서버와 TCP 비교
+**목표:** `dgram` 모듈로 UDP 서버를 만들고 TCP와의 차이를 직접 체감
+
+- `dgram.createSocket('udp4')`로 UDP 서버 띄우기, `message`/`listening`/`error` 이벤트 다루기
+- 같은 echo 동작을 UDP로 구현하고 TCP 버전과 비교
+- 패킷 손실/순서 뒤바뀜을 인위적으로 만들어보고 동작 차이 관찰
+- **학습 포인트 (TCP vs UDP):**
+  - 연결 지향(handshake, `connection` 이벤트) vs 비연결형(데이터그램 단위 송수신)
+  - 신뢰성/순서 보장 vs best-effort
+  - Stream(바이트 흐름, 경계 없음) vs Datagram(메시지 경계 보존)
+  - 흐름 제어·혼잡 제어·재전송 유무
+  - 헤더 오버헤드와 지연 특성, MTU/단편화 이슈
+  - 사용처: HTTP·DB·SSH (TCP) vs DNS·실시간 영상·게임·QUIC 기반 HTTP/3 (UDP)
+- **테스트:** integration에서 UDP 클라이언트로 echo 검증, 동일 시나리오의 TCP 결과와 비교
+
 ### Phase 2. TCP 동시성 / 멀티스레딩
 **목표:** Node에서 "멀티스레드"가 실제로 어떻게 동작하는지 이해
 
@@ -84,6 +99,7 @@ test/
 | Phase | 완료 기준 |
 |-------|-----------|
 | 1 | echo가 동시 연결에서도 깨지지 않음 |
+| 1.5 | UDP echo 동작 + TCP와의 차이를 표/문서로 정리 |
 | 2 | 워커 N개에서 부하 분산 측정 가능 (간단한 부하 스크립트) |
 | 3 | `curl`로 보낸 raw 요청을 100% 파싱 + chunked 처리 |
 | 4 | 자체 프레임워크로 작성한 앱이 브라우저/`curl`에서 정상 응답 |
