@@ -138,6 +138,27 @@ export function createEchoServer(
 export async function runServer(): Promise<void> {
   const handle = await createEchoServer();
   log.info(`pid=${process.pid} ready (Ctrl+C to stop)`);
-  // 프로세스가 살아있도록 server가 close될 때까지 기다린다.
+
+  /**
+   * SIGINT/SIGTERM: graceful shutdown 진입.
+   * - 한 번 누르면: handle.close()로 새 연결 거부 + 기존 연결 drain.
+   * - 같은 신호를 다시 누르면: 즉시 종료 (사용자가 빠르게 빠져나가고 싶을 때).
+   */
+  let shuttingDown = false;
+  const onSignal = (signal: NodeJS.Signals) => {
+    if (shuttingDown) {
+      log.info(`${signal} again — forcing exit`);
+      process.exit(1);
+    }
+    shuttingDown = true;
+    log.info(`${signal} received — graceful shutdown (active=${handle.activeConnections()})`);
+    handle
+      .close()
+      .then(() => log.info("shutdown complete"))
+      .catch((err) => log.error(err));
+  };
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+
   await new Promise<void>((resolve) => handle.server.once("close", resolve));
 }
