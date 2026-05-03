@@ -1,13 +1,12 @@
 import { log } from "./tcp/log";
 
-type Mode = "server" | "client" | "backpressure";
+const MODES = ["server", "client", "backpressure", "udp-server", "udp-client"] as const;
+type Mode = (typeof MODES)[number];
 
 function parseMode(arg: string | undefined): Mode {
-  if (arg === "server" || arg === "client" || arg === "backpressure") {
-    return arg;
-  }
+  if ((MODES as readonly string[]).includes(arg ?? "")) return arg as Mode;
   log.error(
-    `unknown mode: ${arg ?? "(none)"}\nusage: pnpm start <server|client|backpressure>`,
+    `unknown mode: ${arg ?? "(none)"}\nusage: pnpm start <${MODES.join("|")}>`,
   );
   process.exit(1);
 }
@@ -30,6 +29,16 @@ async function main() {
     case "backpressure": {
       const { runBackpressureDemo } = await import("./tcp/backpressure-demo");
       await runBackpressureDemo();
+      return;
+    }
+    case "udp-server": {
+      const { runUdpServer } = await import("./udp/echo-server");
+      await runUdpServer();
+      return;
+    }
+    case "udp-client": {
+      const { runUdpClient } = await import("./udp/echo-client");
+      await runUdpClient();
       return;
     }
   }
