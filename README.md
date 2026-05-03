@@ -111,15 +111,39 @@ test/
 ```bash
 pnpm install
 
-# Phase 1
-pnpm start server                      # echo 서버 (PORT=3000 기본)
-pnpm start client                      # 자체 클라이언트 (stdin REPL)
+# Phase 1 (TCP)
+pnpm start server                      # TCP echo 서버 (PORT=3000 기본)
+pnpm start client                      # 자체 TCP 클라이언트 (stdin REPL)
 pnpm start backpressure                # backpressure 데모 (안전 경로)
 WAIT_DRAIN=false pnpm start backpressure  # 무시 시 메모리 폭증 관찰
 PORT=4000 pnpm start server            # 포트 변경
+
+# Phase 1.5 (UDP)
+pnpm start udp-server                  # UDP echo 서버 (UDP_PORT=41234 기본)
+pnpm start udp-client                  # UDP 클라이언트 (응답 timeout 표시)
+nc -u 127.0.0.1 41234                  # 수동 검증
 
 pnpm test                              # 전체 테스트
 pnpm test:integration                  # 통합 테스트만
 ```
 
-상세 명세는 `spec/01-tcp-echo-server.md`.
+상세 명세: `spec/01-tcp-echo-server.md`, `spec/02-udp-echo-server.md`.
+
+---
+
+## TCP vs UDP 핵심 차이 (이 프로젝트 코드 기준)
+
+| 축 | TCP (`src/tcp/`) | UDP (`src/udp/`) |
+|----|------------------|------------------|
+| API | `net.createServer((socket) => ...)` | `dgram.createSocket('udp4')` |
+| 연결 모델 | 연결 지향 (handshake) — `connection` 이벤트 | 비연결형 — `connection` 이벤트 없음 |
+| 송신자 식별 | accepted socket이 곧 식별자 | 매 메시지의 `rinfo.address:port` |
+| 응답 송신 | `socket.write(chunk)` | `socket.send(msg, port, address)` (명시적 주소) |
+| 메시지 경계 | byte stream — `write` N번이 `data` 1~N번으로 임의 분할 | datagram — `send` N번이 `message` 정확히 N번 |
+| 신뢰성/순서 | 보장 (재전송, 순서) | best-effort (손실/순서 뒤섞임 가능) |
+| 흐름 제어 | 있음 — `write()=false` + `'drain'`으로 backpressure | 없음 — 송신자가 알아서 페이스 조절 |
+| 0-byte 메시지 | 의미 없음 (no-op) | 유효한 메시지 |
+| 라이프사이클 추적 | 활성 소켓 추적 + graceful drain 필요 | `socket.close()` 한 번 |
+| 대표 사용처 | HTTP/1.1·DB·SSH | DNS·실시간 영상·게임·QUIC(HTTP/3 기반) |
+
+각 행은 `test/integration/udp/comparison.test.ts`에서 같은 시나리오로 직접 비교 검증된다.
