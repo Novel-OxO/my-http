@@ -7,6 +7,7 @@ const MODES = [
   "udp-server",
   "udp-client",
   "http-parse",
+  "framework",
 ] as const;
 type Mode = (typeof MODES)[number];
 
@@ -51,6 +52,11 @@ async function main() {
     case "http-parse": {
       const { runHttpParseDemo } = await import("./http/parse-demo");
       await runHttpParseDemo();
+      return;
+    }
+    case "framework": {
+      const { runFrameworkDemo } = await import("./framework/demo");
+      await runFrameworkDemo();
       return;
     }
   }
