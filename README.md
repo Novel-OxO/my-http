@@ -105,11 +105,16 @@ pnpm start udp-server                  # UDP echo 서버 (UDP_PORT=41234 기본)
 pnpm start udp-client                  # UDP 클라이언트 (응답 timeout 표시)
 nc -u 127.0.0.1 41234                  # 수동 검증
 
-pnpm test                              # 전체 테스트
-pnpm test:integration                  # 통합 테스트만
+# Phase 2 (HTTP 파서)
+printf 'GET / HTTP/1.1\r\nHost: a\r\n\r\n' | pnpm start http-parse
+# stdin raw 요청 → 파싱 결과 JSON 출력. chunked/Content-Length, pipelining 지원.
+
+pnpm test                              # 전체 테스트 (unit + integration)
+pnpm test:unit                         # 파서 단위 테스트
+pnpm test:integration                  # 소켓 통합 테스트
 ```
 
-상세 명세: `spec/01-tcp-echo-server.md`, `spec/02-udp-echo-server.md`.
+상세 명세: `spec/01-tcp-echo-server.md`, `spec/02-udp-echo-server.md`, `spec/03-http-parser.md`.
 
 ---
 

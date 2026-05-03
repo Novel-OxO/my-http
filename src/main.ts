@@ -1,6 +1,13 @@
 import { log } from "./tcp/log";
 
-const MODES = ["server", "client", "backpressure", "udp-server", "udp-client"] as const;
+const MODES = [
+  "server",
+  "client",
+  "backpressure",
+  "udp-server",
+  "udp-client",
+  "http-parse",
+] as const;
 type Mode = (typeof MODES)[number];
 
 function parseMode(arg: string | undefined): Mode {
@@ -39,6 +46,11 @@ async function main() {
     case "udp-client": {
       const { runUdpClient } = await import("./udp/echo-client");
       await runUdpClient();
+      return;
+    }
+    case "http-parse": {
+      const { runHttpParseDemo } = await import("./http/parse-demo");
+      await runHttpParseDemo();
       return;
     }
   }
