@@ -6,12 +6,19 @@ export type EchoServerOptions = {
   host?: string;
 };
 
+export type EchoServerStats = {
+  /** socket.write()가 false를 반환해 backpressure가 발동된 누적 횟수. */
+  backpressureHits: number;
+};
+
 export type EchoServerHandle = {
   server: net.Server;
   port: number;
   host: string;
   /** 현재 활성화된 클라이언트 소켓 수. */
   activeConnections: () => number;
+  /** 누적 통계. backpressure가 실제로 트리거되는지 테스트에서 확인한다. */
+  stats: () => EchoServerStats;
   /** 새 연결을 거부하고 활성 연결이 모두 끝날 때까지 기다린다 (graceful). */
   close: () => Promise<void>;
 };
@@ -36,6 +43,7 @@ export function createEchoServer(
    * 기존 연결은 직접 추적해야 drain까지 기다릴 수 있다.
    */
   const activeSockets = new Set<net.Socket>();
+  const stats: EchoServerStats = { backpressureHits: 0 };
 
   const server = net.createServer((socket) => {
     activeSockets.add(socket);
@@ -44,9 +52,20 @@ export function createEchoServer(
         `(active=${activeSockets.size})`,
     );
 
+    /**
+     * 학습 포인트 (backpressure):
+     * `socket.write()`는 OS 송신 버퍼가 꽉 차면 false를 반환한다. 이 신호를
+     * 무시하고 계속 write 하면 Node 내부 큐가 메모리에 쌓여 OOM으로 갈 수 있다.
+     * 올바른 패턴은 false를 받으면 읽기를 잠시 멈추고('pause') 'drain'에서 풀어
+     * 주는 것이다 — TCP 흐름 제어에 우리 쪽 읽기 속도를 맞추는 셈이다.
+     */
     socket.on("data", (chunk) => {
-      // Buffer를 그대로 echo. 인코딩 변환을 안 해야 binary safe하다.
-      socket.write(chunk);
+      const ok = socket.write(chunk);
+      if (!ok) {
+        stats.backpressureHits += 1;
+        socket.pause();
+        socket.once("drain", () => socket.resume());
+      }
     });
 
     /**
@@ -90,6 +109,7 @@ export function createEchoServer(
         port: address.port,
         host: address.address,
         activeConnections: () => activeSockets.size,
+        stats: () => ({ ...stats }),
         /**
          * graceful shutdown:
          * 1) server.close() — 새 연결은 더 이상 받지 않는다 (listening 해제).
